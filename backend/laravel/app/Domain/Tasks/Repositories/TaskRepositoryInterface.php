@@ -25,4 +25,5 @@ interface TaskRepositoryInterface
     public function listOverdueForOrganization(int $organizationId): Collection;
 
     public function countByStatus(int $organizationId): array;
+    public function countOverdue(int $organizationId): int;
 }

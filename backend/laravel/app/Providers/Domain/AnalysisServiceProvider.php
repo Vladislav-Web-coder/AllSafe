@@ -4,6 +4,7 @@ namespace App\Providers\Domain;
 
 use App\Domain\Analysis\Repositories\AnalysisRunRepositoryInterface;
 use App\Domain\Analysis\Repositories\DocumentIssueRepositoryInterface;
+use App\Domain\Analysis\Services\AnalysisVersionService;
 use App\Domain\Issues\Repositories\IssueCommentRepositoryInterface;
 use App\Domain\Issues\Repositories\IssueHistoryRepositoryInterface;
 use App\Infrastructure\AI\AiClientInterface;
@@ -46,6 +47,9 @@ class AnalysisServiceProvider extends ServiceProvider
         $this->app->bind(
             IssueHistoryRepositoryInterface::class,
             EloquentIssueHistoryRepository::class
+        );
+        $this->app->singleton(
+            AnalysisVersionService::class
         );
     }
     public function boot()

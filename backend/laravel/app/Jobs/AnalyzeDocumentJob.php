@@ -7,6 +7,7 @@ use App\Domain\Analysis\Enums\IssueSeverity;
 use App\Domain\Analysis\Enums\IssueStatus;
 use App\Domain\Analysis\Repositories\AnalysisRunRepositoryInterface;
 use App\Domain\Analysis\Repositories\DocumentIssueRepositoryInterface;
+use App\Domain\Analysis\Services\AnalysisVersionService;
 use App\Domain\Documents\Enums\DocumentStatus;
 use App\Domain\Documents\Repositories\DocumentRepositoryInterface;
 use App\Domain\Documents\Repositories\DocumentVersionRepositoryInterface;
@@ -20,6 +21,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -36,27 +38,31 @@ class AnalyzeDocumentJob implements ShouldQueue
 
     public function __construct(
         public int $analysisRunId,
-    ) {}
+    )
+    {}
 
     public function handle(
-        AnalysisRunRepositoryInterface $analysisRuns,
-        DocumentRepositoryInterface $documents,
+        AnalysisRunRepositoryInterface     $analysisRuns,
+        DocumentRepositoryInterface        $documents,
         DocumentVersionRepositoryInterface $versions,
-        DocumentIssueRepositoryInterface $issues,
-        AiClientInterface $ai,
-        DocumentTextExtractorInterface $textExtractor,
-        EmbeddingServiceInterface $embeddingService,
-        LegalChunkRepositoryInterface $legalChunks,
-    ): void {
+        DocumentIssueRepositoryInterface   $issues,
+        AiClientInterface                  $ai,
+        DocumentTextExtractorInterface     $textExtractor,
+        EmbeddingServiceInterface          $embeddingService,
+        LegalChunkRepositoryInterface      $legalChunks,
+        AnalysisVersionService             $versionService,
+    ): void
+    {
         $run = $analysisRuns->findById($this->analysisRunId);
 
-        if (! $run) {
+        if (!$run) {
             return;
         }
 
         $document = $run->document;
 
         try {
+            // Обновляем статусы
             $analysisRuns->update($run, [
                 'status' => AnalysisStatus::Processing,
                 'started_at' => now(),
@@ -66,24 +72,38 @@ class AnalyzeDocumentJob implements ShouldQueue
                 'status' => DocumentStatus::Analyzing,
             ]);
 
-            $version = $versions->findById((int) $run->document_version_id);
+            // Получаем версию документа
+            $version = $versions->findById((int)$run->document_version_id);
 
-            if (! $version) {
+            if (!$version) {
                 throw new \RuntimeException('Версия документа не найдена.');
             }
 
+            Log::info('AnalyzeDocumentJob: version loaded', [
+                'version_id' => $version->id,
+                'file_path' => $version->file_path,
+                'parsed_text_path' => $version->parsed_text_path,
+                'storage_disk' => $version->storage_disk,
+            ]);
+
             $disk = $version->storage_disk ?: 'minio';
 
+            // Извлекаем текст
             $fullText = null;
 
             if ($version->parsed_text_path) {
                 $fullText = Storage::disk($disk)->get($version->parsed_text_path);
+
+                Log::info('AnalyzeDocumentJob: using existing parsed text', [
+                    'parsed_text_path' => $version->parsed_text_path,
+                    'text_length' => mb_strlen($fullText ?? ''),
+                ]);
             }
 
-            if (! $fullText) {
+            if (!$fullText) {
                 $fileContent = Storage::disk($disk)->get($version->file_path);
 
-                if (! $fileContent) {
+                if (!$fileContent) {
                     throw new \RuntimeException('Не удалось прочитать файл документа.');
                 }
 
@@ -99,30 +119,55 @@ class AnalyzeDocumentJob implements ShouldQueue
 
                 Storage::disk($disk)->put($parsedPath, $fullText);
 
-                $versions->update($version, [
+                // Сохраняем parsed_text_path
+                $version = $versions->update($version, [
                     'parsed_text_path' => $parsedPath,
+                ]);
+
+                Log::info('AnalyzeDocumentJob: parsed_text_path saved', [
+                    'version_id' => $version->id,
+                    'parsed_text_path' => $parsedPath,
+                    'text_length' => mb_strlen($fullText),
                 ]);
             }
 
-            $maxChars = (int) config('ai.analysis.max_chars', 20000);
+            // RAG: создаём embedding и ищем релевантные НПА
+            $maxEmbeddingChars = 4000;
+            $textForEmbedding = mb_substr($fullText, 0, $maxEmbeddingChars);
+
+            $legalContext = [];
+
+            try {
+                $documentEmbedding = $embeddingService->embed($textForEmbedding);
+
+                $relevantChunks = $legalChunks->searchSimilar($documentEmbedding, 10);
+
+                Log::info('AnalyzeDocumentJob: RAG search results', [
+                    'document_id' => $document->id,
+                    'chunks_found' => $relevantChunks->count(),
+                ]);
+
+                $legalContext = $relevantChunks->map(function ($chunk) {
+                    return [
+                        'source_title' => $chunk->source?->title,
+                        'source_number' => $chunk->source?->number,
+                        'article' => $chunk->article,
+                        'part' => $chunk->part,
+                        'content' => $chunk->content,
+                    ];
+                })->toArray();
+            } catch (Throwable $e) {
+                Log::warning('AnalyzeDocumentJob: RAG search failed', [
+                    'document_id' => $document->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                $legalContext = [];
+            }
+
+            // Формируем payload для AI
+            $maxChars = (int)config('ai.analysis.max_chars', 20000);
             $truncatedText = mb_substr($fullText, 0, $maxChars);
-
-            // Создаём embedding для текста документа
-            $documentEmbedding = $embeddingService->embed($truncatedText);
-
-            // Ищем релевантные фрагменты НПА
-            $relevantChunks = $legalChunks->searchSimilar($documentEmbedding, 10);
-
-            // Формируем контекст для LLM
-            $legalContext = $relevantChunks->map(function ($chunk) {
-                return [
-                    'source_title' => $chunk->source?->title,
-                    'source_number' => $chunk->source?->number,
-                    'article' => $chunk->article,
-                    'part' => $chunk->part,
-                    'content' => $chunk->content,
-                ];
-            })->toArray();
 
             $document->load('type');
 
@@ -136,8 +181,13 @@ class AnalyzeDocumentJob implements ShouldQueue
                 'legal_context' => $legalContext,
             ];
 
+            // Вызываем AI
             $result = $ai->analyzeDocument($payload);
 
+            // Получаем версии для записи
+            $analysisVersions = $versionService->getAllVersions();
+
+            // Сохраняем результаты
             DB::connection('pgsql_core')->transaction(function () use (
                 $analysisRuns,
                 $documents,
@@ -145,6 +195,7 @@ class AnalyzeDocumentJob implements ShouldQueue
                 $run,
                 $document,
                 $result,
+                $analysisVersions,
             ) {
                 $issues->deleteByRun($run->id);
 
@@ -178,6 +229,11 @@ class AnalyzeDocumentJob implements ShouldQueue
                     'model_name' => $result['model_name'] ?? 'unknown',
                     'finished_at' => now(),
                     'error_message' => null,
+
+                    // Версионирование
+                    'prompt_version' => $analysisVersions['prompt_version'],
+                    'knowledge_base_version' => $analysisVersions['knowledge_base_version'],
+                    'requirements_version' => $analysisVersions['requirements_version'],
                 ]);
 
                 $documents->update($document, [

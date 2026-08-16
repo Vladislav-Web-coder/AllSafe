@@ -10,6 +10,7 @@ use App\Application\Issues\UseCases\BulkUpdateIssuesUseCase;
 use App\Application\Issues\UseCases\UpdateIssueStatusUseCase;
 use App\Domain\Analysis\Enums\IssueStatus;
 use App\Domain\Analysis\Repositories\DocumentIssueRepositoryInterface;
+use App\Domain\Audit\Enums\AuditAction;
 use App\Domain\Issues\Repositories\IssueCommentRepositoryInterface;
 use App\Domain\Issues\Repositories\IssueHistoryRepositoryInterface;
 use App\Http\Controllers\Controller;
@@ -92,6 +93,16 @@ class IssueController extends Controller
         );
 
         $issue = $this->updateStatus->handle($command);
+
+        $this->audit->logFromRequest(
+            action: AuditAction::IssueStatusChanged,
+            request: $request,
+            subjectType: 'issue',
+            subjectId: $issue->id,
+            description: "Статус замечания изменён на: {$issue->status->label()}",
+            oldValues: ['status' => $oldStatus->value ?? null],
+            newValues: ['status' => $issue->status->value],
+        );
 
         return response()->json(new DocumentIssueResource($issue));
     }

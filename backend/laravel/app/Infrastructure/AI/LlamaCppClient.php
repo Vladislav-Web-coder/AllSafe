@@ -21,7 +21,7 @@ class LlamaCppClient implements AiClientInterface
         $apiKey = config('ai.llama_cpp.api_key');
         $model = (string) config('ai.llama_cpp.model', 'local');
         $temperature = (float) config('ai.llama_cpp.temperature', 0.1);
-        $maxTokens = (int) config('ai.llama_cpp.max_tokens', 2048);
+        $maxTokens = (int) config('ai.llama_cpp.max_tokens', 4096);
         $timeout = (int) config('ai.llama_cpp.timeout', 600);
 
         $request = Http::timeout($timeout)
@@ -57,31 +57,89 @@ class LlamaCppClient implements AiClientInterface
             );
         }
 
-        $data = $response->json();
-
-        if (! is_array($data)) {
-            throw new RuntimeException('llama.cpp returned non-JSON response.');
-        }
-
-        $content = $data['choices'][0]['message']['content'] ?? null;
+        $content = $response->json('choices.0.message.content');
 
         if (! is_string($content)) {
-            throw new RuntimeException(
-                'llama.cpp returned unexpected response structure.'
-            );
+            throw new RuntimeException('llama.cpp returned unexpected response structure.');
         }
 
-        $content = $this->stripMarkdownCodeFences($content);
+        // Логируем сырой ответ
+        Log::info('LlamaCppClient analyzeDocument raw response', [
+            'content_length' => mb_strlen($content),
+            'content_start' => mb_substr($content, 0, 500),
+            'content_end' => mb_substr($content, -300),
+        ]);
 
-        $decoded = json_decode($content, true);
+        // Парсим JSON через надёжный парсер
+        $parser = new LlmJsonParser();
+        $decoded = $parser->parse($content);
 
-        if (! is_array($decoded)) {
-            throw new RuntimeException(
-                'llama.cpp returned invalid JSON in message content.'
-            );
+        if (is_array($decoded)) {
+            Log::info('LlamaCppClient analyzeDocument: JSON parsed successfully', [
+                'has_score' => isset($decoded['score']),
+                'has_issues' => isset($decoded['issues']),
+                'issues_count' => count($decoded['issues'] ?? []),
+            ]);
+
+            return $this->normalizer->normalize($decoded, 'llama_cpp', $model);
         }
 
-        return $this->normalizer->normalize($decoded, 'llama_cpp', $model);
+        // Если JSON не распарсился, пробуем извлечь данные из текста
+        Log::warning('LlamaCppClient analyzeDocument: JSON not parsed, attempting text extraction');
+
+        $extracted = $this->extractAnalysisFromText($content, $payload);
+
+        if ($extracted !== null) {
+            return $extracted;
+        }
+
+        // Если ничего не помогло, бросаем ошибку с содержимым для диагностики
+        Log::error('LlamaCppClient analyzeDocument: failed to parse response', [
+            'content_preview' => mb_substr($content, 0, 1000),
+        ]);
+
+        throw new RuntimeException(
+            'llama.cpp returned invalid JSON in message content. ' .
+            'Preview: ' . mb_substr($content, 0, 200)
+        );
+    }
+
+    /**
+     * Пытается извлечь результаты анализа из обычного текста.
+     * Fallback для случаев, когда модель не вернула JSON.
+     */
+    private function extractAnalysisFromText(string $content, array $payload): ?array
+    {
+        // Если текст пустой — нечего извлекать
+        if (trim($content) === '') {
+            return null;
+        }
+
+        // Формируем минимальный результат из текста
+        return [
+            'score' => null,
+            'summary' => [
+                'total_checks' => 1,
+                'passed' => 0,
+                'failed' => 1,
+                'warnings' => 0,
+            ],
+            'missing_sections' => [],
+            'legal_references' => [],
+            'issues' => [
+                [
+                    'requirement_code' => null,
+                    'severity' => 'info',
+                    'title' => 'Результат анализа от LLM',
+                    'description' => mb_substr($content, 0, 2000),
+                    'recommendation' => 'Требуется ручная проверка документа.',
+                    'legal_basis' => [],
+                    'section_code' => null,
+                ],
+            ],
+            'model_provider' => 'llama_cpp',
+            'model_name' => (string) config('ai.llama_cpp.model', 'local'),
+        ];
     }
 
     public function generateDocumentContent(string $prompt): array
@@ -89,7 +147,7 @@ class LlamaCppClient implements AiClientInterface
         $baseUrl = rtrim((string) config('ai.llama_cpp.base_url'), '/');
         $apiKey = config('ai.llama_cpp.api_key');
         $model = (string) config('ai.llama_cpp.model', 'local');
-        $temperature = (float) config('ai.llama_cpp.temperature', 0.3);
+        $temperature = 0.3;
         $maxTokens = (int) config('ai.llama_cpp.max_tokens', 8192);
         $timeout = (int) config('ai.llama_cpp.timeout', 600);
 
@@ -128,43 +186,22 @@ class LlamaCppClient implements AiClientInterface
             throw new RuntimeException('llama.cpp returned unexpected response structure.');
         }
 
-        // Логируем сырой ответ
         Log::info('LlamaCppClient generateDocumentContent raw response', [
             'content_length' => mb_strlen($content),
             'content_start' => mb_substr($content, 0, 200),
             'content_end' => mb_substr($content, -200),
         ]);
 
-        // Парсим JSON через надёжный парсер
         $parser = new LlmJsonParser();
         $decoded = $parser->parse($content);
 
         if (is_array($decoded)) {
-            Log::info('LlamaCppClient generateDocumentContent: JSON parsed successfully', [
-                'has_content' => isset($decoded['content']),
-                'has_sections' => isset($decoded['sections']),
-                'sections_count' => count($decoded['sections'] ?? []),
-            ]);
-
             return $decoded;
         }
-
-        // Если JSON не распарсился, возвращаем как единый контент
-        Log::warning('LlamaCppClient generateDocumentContent: JSON not parsed, returning as content');
 
         return [
             'content' => $content,
             'sections' => [],
         ];
-    }
-
-    private function stripMarkdownCodeFences(string $content): string
-    {
-        $content = trim($content);
-
-        $content = (string) preg_replace('/^```(?:json)?\s*/i', '', $content);
-        $content = (string) preg_replace('/\s*```$/', '', $content);
-
-        return trim($content);
     }
 }

@@ -10,4 +10,6 @@ return [
     App\Providers\Domain\KnowledgeServiceProvider::class,
     App\Providers\Domain\EmbeddingServiceProvider::class,
     App\Providers\Domain\TaskServiceProvider::class,
+    App\Providers\Domain\ComplianceCalculatorServiceProvider::class,
+    App\Providers\Domain\AuditLogServiceProvider::class,
 ];

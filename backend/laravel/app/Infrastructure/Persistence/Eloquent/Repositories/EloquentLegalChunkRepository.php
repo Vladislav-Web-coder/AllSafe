@@ -30,6 +30,7 @@ class EloquentLegalChunkRepository implements LegalChunkRepositoryInterface
                 'legal_chunks.*',
                 DB::raw("embedding <=> '{$vectorString}'::vector AS distance"),
             ])
+            ->whereNotNull('embedding')
             ->orderBy('distance')
             ->limit($limit)
             ->with('source')

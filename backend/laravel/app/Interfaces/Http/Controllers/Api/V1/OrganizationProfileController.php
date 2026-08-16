@@ -61,6 +61,15 @@ class OrganizationProfileController extends Controller
 
         $profile = $this->updateProfile->handle($command);
 
+        $this->audit->logFromRequest(
+            action: AuditAction::ProfileUpdated,
+            request: $request,
+            subjectType: 'organization_profile',
+            subjectId: $profile->id,
+            description: 'Обновлён профиль организации',
+            newValues: $request->validated(),
+        );
+
         return response()->json(new OrganizationProfileResource($profile));
     }
 

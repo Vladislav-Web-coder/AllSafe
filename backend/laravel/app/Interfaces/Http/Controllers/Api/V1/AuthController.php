@@ -8,12 +8,15 @@ use App\Application\Auth\Commands\RefreshTokenCommand;
 use App\Application\Auth\UseCases\LoginUseCase;
 use App\Application\Auth\UseCases\LogoutUseCase;
 use App\Application\Auth\UseCases\RefreshTokenUseCase;
+use App\Domain\Audit\Enums\AuditAction;
+use App\Domain\Audit\Services\AuditService;
 use App\Http\Controllers\Controller;
 use App\Interfaces\Http\Requests\Auth\LoginRequest;
 use App\Interfaces\Http\Requests\Auth\LogoutRequest;
 use App\Interfaces\Http\Requests\Auth\RefreshRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Interfaces\Http\Resources\Auth\AuthTokensResource;
 
 class AuthController extends Controller
@@ -22,6 +25,7 @@ class AuthController extends Controller
         private LoginUseCase $loginUseCase,
         private RefreshTokenUseCase $refreshTokenUseCase,
         private LogoutUseCase $logoutUseCase,
+        private AuditService $audit,
     ) {}
 
     public function login(LoginRequest $request): AuthTokensResource
@@ -33,9 +37,28 @@ class AuthController extends Controller
             userAgent: $request->userAgent(),
         );
 
-        $tokens = $this->loginUseCase->handle($command);
+        try {
+            $tokens = $this->loginUseCase->handle($command);
 
-        return new AuthTokensResource($tokens);
+            $this->audit->log(
+                action: AuditAction::AuthLoginSuccess,
+                userId: $tokens->user->id ?? null,
+                userEmail: $request->validated('email'),
+                request: $request,
+            );
+
+            return new AuthTokensResource($tokens);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            $this->audit->log(
+                action: AuditAction::AuthLoginFailed,
+                userEmail: $request->validated('email'),
+                result: 'error',
+                request: $request,
+            );
+        }
+
     }
 
     public function refresh(RefreshRequest $request): AuthTokensResource
@@ -59,6 +82,11 @@ class AuthController extends Controller
         );
 
         $this->logoutUseCase->handle($command);
+
+        $this->audit->logFromRequest(
+            action: AuditAction::AuthLogout,
+            request: $request,
+        );
 
         return response()->json([
             'message' => 'Вы вышли из системы.'

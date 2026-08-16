@@ -6,6 +6,7 @@ use App\Application\Analysis\Commands\StartDocumentAnalysisCommand;
 use App\Application\Analysis\UseCases\StartDocumentAnalysisUseCase;
 use App\Domain\Analysis\Repositories\AnalysisRunRepositoryInterface;
 use App\Domain\Analysis\Repositories\DocumentIssueRepositoryInterface;
+use App\Domain\Audit\Enums\AuditAction;
 use App\Domain\Documents\Entities\Document;
 use App\Http\Controllers\Controller;
 use App\Interfaces\Http\Resources\Analysis\AnalysisRunResource;
@@ -35,6 +36,14 @@ class DocumentAnalysisController extends Controller
         );
 
         $analysisRun = $this->startAnalysis->handle($command);
+
+        $this->audit->logFromRequest(
+            action: AuditAction::DocumentAnalysisStarted,
+            request: $request,
+            subjectType: 'document',
+            subjectId: $document->id,
+            description: "Запущен анализ документа: {$document->title}",
+        );
 
         return response()->json(new AnalysisRunResource($analysisRun), 202);
     }

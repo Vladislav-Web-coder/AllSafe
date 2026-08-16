@@ -12,4 +12,5 @@ interface DocumentVersionRepositoryInterface
 
     public function findById(int $id): ?DocumentVersion;
     public function update(DocumentVersion $version, array $data): DocumentVersion;
+    public function listForDocument(int $documentId);
 }

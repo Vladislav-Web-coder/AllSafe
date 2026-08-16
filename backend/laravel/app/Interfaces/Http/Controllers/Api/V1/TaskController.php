@@ -10,6 +10,7 @@ use App\Application\Tasks\UseCases\AssignTaskUseCase;
 use App\Application\Tasks\UseCases\CreateTaskFromIssueUseCase;
 use App\Application\Tasks\UseCases\CreateTaskUseCase;
 use App\Application\Tasks\UseCases\UpdateTaskStatusUseCase;
+use App\Domain\Audit\Enums\AuditAction;
 use App\Domain\Tasks\Enums\TaskPriority;
 use App\Domain\Tasks\Enums\TaskSourceType;
 use App\Domain\Tasks\Enums\TaskStatus;
@@ -105,6 +106,14 @@ class TaskController extends Controller
 
         $task = $this->createTask->handle($command);
 
+        $this->audit->logFromRequest(
+            action: AuditAction::TaskCreated,
+            request: $request,
+            subjectType: 'task',
+            subjectId: $task->id,
+            description: "Создана задача: {$task->title}",
+        );
+
         return response()->json(new TaskResource($task), 201);
     }
 
@@ -157,6 +166,15 @@ class TaskController extends Controller
         );
 
         $task = $this->updateStatus->handle($command);
+
+        $this->audit->logFromRequest(
+            action: AuditAction::TaskStatusChanged,
+            request: $request,
+            subjectType: 'task',
+            subjectId: $task->id,
+            description: "Статус задачи изменён на: {$task->status->label()}",
+            newValues: ['status' => $task->status->value],
+        );
 
         return response()->json(new TaskResource($task));
     }

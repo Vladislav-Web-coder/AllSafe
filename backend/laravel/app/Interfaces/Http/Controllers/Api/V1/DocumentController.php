@@ -6,6 +6,7 @@ use App\Application\Documents\Commands\CreateDocumentCommand;
 use App\Application\Documents\Commands\UploadDocumentFileCommand;
 use App\Application\Documents\UseCases\CreateDocumentUseCase;
 use App\Application\Documents\UseCases\UploadDocumentFileUseCase;
+use App\Domain\Audit\Enums\AuditAction;
 use App\Domain\Documents\Entities\Document;
 use App\Domain\Documents\Entities\DocumentVersion;
 use App\Domain\Documents\Enums\DocumentSource;
@@ -87,6 +88,19 @@ class DocumentController extends Controller
         );
 
         $version = $this->uploadDocumentFile->handle($command);
+
+        $this->audit->logFromRequest(
+            action: AuditAction::DocumentFileUploaded,
+            request: $request,
+            subjectType: 'document',
+            subjectId: $document->id,
+            description: "Загружен файл: {$version->file_name}, версия {$version->version_number}",
+            newValues: [
+                'version_number' => $version->version_number,
+                'file_name' => $version->file_name,
+                'file_size' => $version->file_size,
+            ],
+        );
 
         return response()->json(new DocumentVersionResource($version), 201);
     }

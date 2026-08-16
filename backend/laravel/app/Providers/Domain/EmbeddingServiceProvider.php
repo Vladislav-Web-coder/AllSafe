@@ -4,6 +4,7 @@ namespace App\Providers\Domain;
 
 use App\Infrastructure\Embeddings\EmbeddingServiceInterface;
 use App\Infrastructure\Embeddings\FakeEmbeddingService;
+use App\Infrastructure\Embeddings\HttpEmbeddingService;
 use Illuminate\Support\ServiceProvider;
 
 class EmbeddingServiceProvider extends ServiceProvider
@@ -12,7 +13,7 @@ class EmbeddingServiceProvider extends ServiceProvider
     {
         $this->app->bind(
             EmbeddingServiceInterface::class,
-            FakeEmbeddingService::class,
+            HttpEmbeddingService::class
         );
     }
     public function boot(): void

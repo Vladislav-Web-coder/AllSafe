@@ -6,37 +6,45 @@ use Illuminate\Support\Facades\Log;
 
 class LlmJsonParser
 {
-    /**
-     * Пытается извлечь JSON из ответа LLM.
-     * Возвращает массив или null, если JSON не найден.
-     */
     public function parse(string $raw): ?array
     {
-        // Убираем markdown code fences
+        if (empty(trim($raw))) {
+            return null;
+        }
+
+        // Шаг 1: убираем markdown code fences
         $cleaned = $this->stripCodeFences($raw);
 
-        // распарсить напрямую
+        // Шаг 2: пробуем распарсить напрямую
         $decoded = json_decode($cleaned, true);
 
         if (is_array($decoded)) {
             return $decoded;
         }
 
-        // Если не получилось, пробуем найти JSON в строке
+        // Шаг 3: пробуем найти JSON-объект в строке
         $extracted = $this->extractJson($cleaned);
 
         if ($extracted !== null) {
             return $extracted;
         }
 
-        // Пробуем починить обрезанный JSON
+        // Шаг 4: пробуем починить обрезанный JSON
         $repaired = $this->repairTruncatedJson($cleaned);
 
         if ($repaired !== null) {
             return $repaired;
         }
 
-        Log::warning('LlmJsonParser: failed to parse JSON', [
+        // Шаг 5: пробуем найти JSON с вложенными массивами
+        $nested = $this->extractNestedJson($cleaned);
+
+        if ($nested !== null) {
+            return $nested;
+        }
+
+        Log::warning('LlmJsonParser: all parsing attempts failed', [
+            'raw_length' => mb_strlen($raw),
             'raw_preview' => mb_substr($raw, 0, 300),
             'json_error' => json_last_error_msg(),
         ]);
@@ -44,26 +52,19 @@ class LlmJsonParser
         return null;
     }
 
-    /**
-     * Убирает markdown code fences.
-     */
     private function stripCodeFences(string $text): string
     {
         $text = trim($text);
 
         // Убираем ```json ... ``` или ``` ... ```
         $text = (string) preg_replace('/^```(?:json)?\s*\n?/i', '', $text);
-        $text = (string) preg_replace('/\n?```\s*$/', '', $text);
+        $text = (string) preg_replace('/\n?\s*```\s*$/', '', $text);
 
         return trim($text);
     }
 
-    /**
-     * Пытается найти JSON-объект в строке.
-     */
     private function extractJson(string $text): ?array
     {
-        // Ищем первый { и последний }
         $start = strpos($text, '{');
         $end = strrpos($text, '}');
 
@@ -82,13 +83,66 @@ class LlmJsonParser
         return null;
     }
 
-    /**
-     * Пытается починить обрезанный JSON.
-     * Если JSON не завершён, пробуем закрыть открытые скобки.
-     */
+    private function extractNestedJson(string $text): ?array
+    {
+        // Ищем первую { и подбираем закрывающую скобку
+        $start = strpos($text, '{');
+
+        if ($start === false) {
+            return null;
+        }
+
+        $depth = 0;
+        $inString = false;
+        $escaped = false;
+        $length = strlen($text);
+
+        for ($i = $start; $i < $length; $i++) {
+            $char = $text[$i];
+
+            if ($escaped) {
+                $escaped = false;
+                continue;
+            }
+
+            if ($char === '\\') {
+                $escaped = true;
+                continue;
+            }
+
+            if ($char === '"') {
+                $inString = ! $inString;
+                continue;
+            }
+
+            if ($inString) {
+                continue;
+            }
+
+            if ($char === '{' || $char === '[') {
+                $depth++;
+            } elseif ($char === '}' || $char === ']') {
+                $depth--;
+
+                if ($depth === 0) {
+                    $jsonCandidate = substr($text, $start, $i - $start + 1);
+
+                    $decoded = json_decode($jsonCandidate, true);
+
+                    if (is_array($decoded)) {
+                        return $decoded;
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private function repairTruncatedJson(string $text): ?array
     {
-        // Находим начало JSON
         $start = strpos($text, '{');
 
         if ($start === false) {
@@ -104,49 +158,37 @@ class LlmJsonParser
             return $decoded;
         }
 
-        // Пробуем закрыть обрезанные строки и скобки
-        $repaired = $this->closeOpenBrackets($jsonCandidate);
+        // Убираем незавершённые конструкции
+        $repaired = preg_replace('/,\s*"[^"]*":\s*"[^"]*$/', '', $jsonCandidate);
+        $repaired = preg_replace('/,\s*"[^"]*":\s*\{[^}]*$/', '', $repaired);
+        $repaired = preg_replace('/,\s*"[^"]*":\s*\[[^\]]*$/', '', $repaired);
+        $repaired = preg_replace('/,\s*$/', '', $repaired);
+
+        // Закрываем незакрытую строку
+        $quoteCount = substr_count($repaired, '"');
+        if ($quoteCount % 2 !== 0) {
+            $repaired .= '"';
+        }
+
+        // Закрываем скобки
+        $openBraces = substr_count($repaired, '{') - substr_count($repaired, '}');
+        $openBrackets = substr_count($repaired, '[') - substr_count($repaired, ']');
+
+        for ($i = 0; $i < $openBrackets; $i++) {
+            $repaired .= ']';
+        }
+
+        for ($i = 0; $i < $openBraces; $i++) {
+            $repaired .= '}';
+        }
 
         $decoded = json_decode($repaired, true);
 
         if (is_array($decoded)) {
-            Log::info('LlmJsonParser: repaired truncated JSON');
+            Log::info('LlmJsonParser: repaired truncated JSON successfully');
             return $decoded;
         }
 
         return null;
-    }
-
-    /**
-     * Закрывает открытые скобки и кавычки в обрезанном JSON.
-     */
-    private function closeOpenBrackets(string $json): string
-    {
-        // Убираем незавершённую строку в конце
-        // Ищем последнюю завершённую пару ключ-значение
-        $json = preg_replace('/,\s*"[^"]*":\s*"[^"]*$/', '', $json);
-        $json = preg_replace('/,\s*"[^"]*":\s*\[$/', '', $json);
-        $json = preg_replace('/,\s*$/', '', $json);
-
-        // Считаем открытые скобки
-        $openBraces = substr_count($json, '{') - substr_count($json, '}');
-        $openBrackets = substr_count($json, '[') - substr_count($json, ']');
-
-        // Проверяем, есть ли незакрытая строка
-        $quoteCount = substr_count($json, '"');
-        if ($quoteCount % 2 !== 0) {
-            $json .= '"';
-        }
-
-        // Закрываем открытые скобки
-        for ($i = 0; $i < $openBrackets; $i++) {
-            $json .= ']';
-        }
-
-        for ($i = 0; $i < $openBraces; $i++) {
-            $json .= '}';
-        }
-
-        return $json;
     }
 }

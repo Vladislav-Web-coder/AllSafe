@@ -1,5 +1,7 @@
 <?php
 
+use App\Interfaces\Http\Controllers\Api\V1\AuditController;
+use App\Interfaces\Http\Controllers\Api\V1\ComplianceController;
 use App\Interfaces\Http\Controllers\Api\V1\DictionaryController;
 use App\Interfaces\Http\Controllers\Api\V1\DocumentAnalysisController;
 use App\Interfaces\Http\Controllers\Api\V1\DocumentController;
@@ -196,6 +198,18 @@ Route::prefix('v1')->group(function () {
 
                         Route::get('comments', [TaskController::class, 'listComments']);
                     });
+
+                });
+
+                Route::prefix('compliance')->group(function () {
+                    Route::get('dashboard', [ComplianceController::class, 'dashboard']);
+                    Route::get('summary', [ComplianceController::class, 'summary']);
+                });
+
+                Route::prefix('audit')->group(function () {
+                    Route::get('/', [AuditController::class, 'index']);
+                    Route::get('{auditLogId}', [AuditController::class, 'show']);
+                    Route::get('user/{userId}', [AuditController::class, 'userActions']);
                 });
             });
         });

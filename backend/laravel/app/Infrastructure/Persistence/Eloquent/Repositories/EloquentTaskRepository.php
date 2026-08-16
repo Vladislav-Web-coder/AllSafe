@@ -119,6 +119,20 @@ class EloquentTaskRepository implements TaskRepositoryInterface
             'done' => $counts['done'] ?? 0,
             'cancelled' => $counts['cancelled'] ?? 0,
             'total' => array_sum($counts),
+            'overdue' => $this->countOverdue($organizationId),
         ];
+    }
+    public function countOverdue(int $organizationId): int
+    {
+        return Task::query()
+            ->where('organization_id', $organizationId)
+            ->whereIn('status', [
+                TaskStatus::New,
+                TaskStatus::InProgress,
+                TaskStatus::Blocked,
+            ])
+            ->whereNotNull('due_date')
+            ->where('due_date', '<', now())
+            ->count();
     }
 }

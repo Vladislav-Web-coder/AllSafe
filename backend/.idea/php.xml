@@ -129,6 +129,16 @@
       <path value="$PROJECT_DIR$/laravel/vendor/symfony/translation" />
       <path value="$PROJECT_DIR$/laravel/vendor/ramsey/collection" />
       <path value="$PROJECT_DIR$/laravel/vendor/symfony/polyfill-uuid" />
+      <path value="$PROJECT_DIR$/laravel/vendor/laravel/sanctum" />
+      <path value="$PROJECT_DIR$/laravel/vendor/_laravel_idea" />
+      <path value="$PROJECT_DIR$/laravel/vendor/aws/aws-crt-php" />
+      <path value="$PROJECT_DIR$/laravel/vendor/league/flysystem-aws-s3-v3" />
+      <path value="$PROJECT_DIR$/laravel/vendor/symfony/filesystem" />
+      <path value="$PROJECT_DIR$/laravel/vendor/aws/aws-sdk-php" />
+      <path value="$PROJECT_DIR$/laravel/vendor/mtdowling/jmespath.php" />
+      <path value="$PROJECT_DIR$/laravel/vendor/smalot/pdfparser" />
+      <path value="$PROJECT_DIR$/laravel/vendor/phpoffice/math" />
+      <path value="$PROJECT_DIR$/laravel/vendor/phpoffice/phpword" />
     </include_path>
   </component>
   <component name="PhpProjectSharedConfiguration" php_language_level="8.2" />
