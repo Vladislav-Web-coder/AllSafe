@@ -5,8 +5,11 @@ namespace App\Domain\Analysis\Entities;
 use App\Domain\Analysis\Enums\IssueSeverity;
 use App\Domain\Analysis\Enums\IssueStatus;
 use App\Domain\Documents\Entities\Document;
+use App\Domain\Issues\Entities\IssueComment;
+use App\Domain\Issues\Entities\IssueHistory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DocumentIssue extends Model
 {
@@ -50,5 +53,35 @@ class DocumentIssue extends Model
     public function document(): BelongsTo
     {
         return $this->belongsTo(Document::class);
+    }
+
+    public function comments(): HasMany
+    {
+        return $this->hasMany(IssueComment::class)
+            ->orderBy('created_at');
+    }
+
+    public function history(): HasMany
+    {
+        return $this->hasMany(IssueHistory::class)
+            ->orderBy('created_at', 'desc');
+    }
+
+    public function isOpen(): bool
+    {
+        return $this->status === IssueStatus::Open;
+    }
+
+    public function isResolved(): bool
+    {
+        return in_array($this->status, [
+            IssueStatus::Fixed,
+            IssueStatus::Rejected,
+        ]);
+    }
+
+    public function canTransitionTo(IssueStatus $newStatus): bool
+    {
+        return IssueStatusTransition::canTransition($this->status, $newStatus);
     }
 }

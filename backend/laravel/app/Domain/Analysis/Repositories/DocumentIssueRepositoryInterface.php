@@ -12,4 +12,14 @@ interface DocumentIssueRepositoryInterface
     public function create(array $data): DocumentIssue;
 
     public function deleteByRun(int $analysisRunId): void;
+
+    public function findById(int $id): ?DocumentIssue;
+
+    public function update(DocumentIssue $issue, array $data): DocumentIssue;
+
+    public function listForDocument(int $documentId): Collection;
+
+    public function listForOrganization(int $organizationId): Collection;
+
+    public function listOpenForOrganization(int $organizationId): Collection;
 }

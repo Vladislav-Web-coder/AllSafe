@@ -3,6 +3,10 @@
 use App\Interfaces\Http\Controllers\Api\V1\DictionaryController;
 use App\Interfaces\Http\Controllers\Api\V1\DocumentAnalysisController;
 use App\Interfaces\Http\Controllers\Api\V1\DocumentController;
+use App\Interfaces\Http\Controllers\Api\V1\DocumentGenerationController;
+use App\Interfaces\Http\Controllers\Api\V1\IssueController;
+use App\Interfaces\Http\Controllers\Api\V1\OrganizationProfileController;
+use App\Interfaces\Http\Controllers\Api\V1\TaskController;
 use Interfaces\Http\Controllers\Api\V1\AuthController;
 use App\Interfaces\Http\Controllers\Api\V1\OrganizationController;
 use App\Interfaces\Http\Controllers\Api\V1\OrganizationMemberController;
@@ -118,6 +122,79 @@ Route::prefix('v1')->group(function () {
                         Route::get('download', [DocumentController::class, 'download']);
                         Route::get('analysis', [DocumentAnalysisController::class, 'analysis']);
                         Route::get('issues', [DocumentAnalysisController::class, 'issues']);
+                    });
+                });
+                Route::prefix('profile')->group(function () {
+                    Route::get('/', [OrganizationProfileController::class, 'show']);
+
+                    Route::middleware('organization.manage')->group(function () {
+                        Route::put('/', [OrganizationProfileController::class, 'update']);
+                    });
+                });
+
+                Route::get('required-documents', [OrganizationProfileController::class, 'requiredDocuments']);
+                Route::get('missing-documents', [OrganizationProfileController::class, 'missingDocuments']);
+
+                Route::prefix('generation')->group(function () {
+                    Route::get('templates', [DocumentGenerationController::class, 'templates']);
+
+                    Route::middleware('organization.documents.upload')->group(function () {
+                        Route::post('/', [DocumentGenerationController::class, 'store']);
+                    });
+
+                    Route::get('runs', [DocumentGenerationController::class, 'index']);
+                    Route::get('runs/{generationRunId}', [DocumentGenerationController::class, 'show']);
+                });
+
+                // Замечания организации
+                Route::get('issues', [IssueController::class, 'index']);
+
+                Route::middleware('organization.documents.upload')->group(function () {
+                    Route::post('issues/bulk', [IssueController::class, 'bulkUpdate']);
+                });
+
+                // Замечания конкретного документа
+                Route::prefix('documents/{documentId}')->middleware('document.access')->group(function () {
+
+                    Route::get('issues', [IssueController::class, 'listForDocument']);
+
+                    Route::prefix('issues/{issueId}')->group(function () {
+
+                        Route::get('/', [IssueController::class, 'show']);
+
+                        Route::middleware('organization.documents.upload')->group(function () {
+                            Route::patch('status', [IssueController::class, 'updateStatus']);
+                            Route::post('comments', [IssueController::class, 'addComment']);
+                        });
+
+                        Route::get('comments', [IssueController::class, 'listComments']);
+                        Route::get('history', [IssueController::class, 'listHistory']);
+                    });
+                });
+
+                // Внутри блока организации
+                Route::prefix('tasks')->group(function () {
+                    Route::get('/', [TaskController::class, 'index']);
+                    Route::get('stats', [TaskController::class, 'stats']);
+                    Route::get('my', [TaskController::class, 'myTasks']);
+
+                    Route::middleware('organization.documents.upload')->group(function () {
+                        Route::post('/', [TaskController::class, 'store']);
+                        Route::post('from-issue', [TaskController::class, 'createFromIssue']);
+                    });
+
+                    Route::prefix('{taskId}')->group(function () {
+
+                        Route::get('/', [TaskController::class, 'show']);
+
+                        Route::middleware('organization.documents.upload')->group(function () {
+                            Route::patch('status', [TaskController::class, 'updateStatus']);
+                            Route::post('assign', [TaskController::class, 'assign']);
+                            Route::post('comments', [TaskController::class, 'addComment']);
+                            Route::delete('/', [TaskController::class, 'destroy']);
+                        });
+
+                        Route::get('comments', [TaskController::class, 'listComments']);
                     });
                 });
             });

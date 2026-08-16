@@ -25,4 +25,10 @@ class EloquentDocumentVersionRepository implements DocumentVersionRepositoryInte
     {
         return DocumentVersion::query()->find($id);
     }
+    public function update(DocumentVersion $version, array $data): DocumentVersion
+    {
+        $version->update($data);
+
+        return $version->refresh();
+    }
 }

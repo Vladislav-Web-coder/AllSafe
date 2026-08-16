@@ -6,4 +6,8 @@ return [
     App\Providers\Domain\OrganizationServiceProvider::class,
     App\Providers\Domain\DocumentServiceProvider::class,
     App\Providers\Domain\AnalysisServiceProvider::class,
+    App\Providers\Domain\ParsingServiceProvider::class,
+    App\Providers\Domain\KnowledgeServiceProvider::class,
+    App\Providers\Domain\EmbeddingServiceProvider::class,
+    App\Providers\Domain\TaskServiceProvider::class,
 ];
