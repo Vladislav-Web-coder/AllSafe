@@ -4,6 +4,8 @@ namespace App\Interfaces\Http\Controllers\Api\V1;
 
 use App\Application\Profiles\Commands\UpdateOrganizationProfileCommand;
 use App\Application\Profiles\UseCases\UpdateOrganizationProfileUseCase;
+use App\Domain\Audit\Enums\AuditAction;
+use App\Domain\Audit\Services\AuditService;
 use App\Domain\Documents\Entities\Document;
 use App\Domain\Profiles\Repositories\OrganizationProfileRepositoryInterface;
 use App\Domain\Requirements\Services\RequiredDocumentsCalculator;
@@ -20,6 +22,7 @@ class OrganizationProfileController extends Controller
         private OrganizationProfileRepositoryInterface $profiles,
         private UpdateOrganizationProfileUseCase $updateProfile,
         private RequiredDocumentsCalculator $calculator,
+        private AuditService $audit
     ) {}
 
     public function show(Request $request, int $organizationId)
@@ -88,7 +91,22 @@ class OrganizationProfileController extends Controller
 
         $requiredRules = $this->calculator->calculate($profile);
 
-        return RequiredDocumentResource::collection($requiredRules);
+        // Получаем типы документов, которые уже есть в организации
+        $existingDocumentTypeIds = Document::query()
+            ->where('organization_id', $organization->id)
+            ->whereNotNull('document_type_id')
+            ->pluck('document_type_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->toArray();
+
+        // Добавляем is_present к каждому правилу
+        $rulesWithPresence = $requiredRules->map(function ($rule) use ($existingDocumentTypeIds) {
+            $rule->is_present = in_array((int) $rule->document_type_id, $existingDocumentTypeIds, true);
+            return $rule;
+        });
+
+        return RequiredDocumentResource::collection($rulesWithPresence);
     }
 
     public function missingDocuments(Request $request, int $organizationId)

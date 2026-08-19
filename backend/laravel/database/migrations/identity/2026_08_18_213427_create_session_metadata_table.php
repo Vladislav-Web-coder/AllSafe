@@ -1,0 +1,36 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    protected $connection = 'pgsql_identity';
+
+    public function up(): void
+    {
+        Schema::connection($this->connection)->create('session_metadata', function (Blueprint $table) {
+            $table->id();
+
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('token_id')->unique();
+
+            $table->string('device_name')->nullable();
+            $table->string('ip_address')->nullable();
+            $table->string('user_agent')->nullable();
+
+            $table->timestamp('last_activity_at')->nullable();
+
+            $table->timestamps();
+
+            $table->index('user_id');
+            $table->index('token_id');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::connection($this->connection)->dropIfExists('session_metadata');
+    }
+};

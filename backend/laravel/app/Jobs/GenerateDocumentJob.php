@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Domain\Generation\Repositories\DocumentTemplateRepositoryInterface;
 use App\Domain\Generation\Repositories\GenerationRunRepositoryInterface;
 use App\Domain\Generation\Services\DocumentGenerationService;
+use App\Domain\Notifications\Services\NotificationService;
 use App\Domain\Organizations\Entities\Organization;
 use App\Domain\Profiles\Repositories\OrganizationProfileRepositoryInterface;
 use Illuminate\Bus\Queueable;
@@ -34,6 +35,7 @@ class GenerateDocumentJob implements ShouldQueue
         DocumentTemplateRepositoryInterface $templates,
         OrganizationProfileRepositoryInterface $profiles,
         DocumentGenerationService $generationService,
+        NotificationService $notificationService
     ): void {
         $run = $runs->findById($this->generationRunId);
 
@@ -73,6 +75,15 @@ class GenerateDocumentJob implements ShouldQueue
             organization: $organization,
             profile: $profile,
             userId: $this->userId,
+        );
+
+        $notificationService->notify(
+            userId: $run->created_by,
+            organizationId: $organization->id,
+            type: 'document_generated',
+            title: 'Документ сгенерирован',
+            message: "Документ \"{$template->name}\" успешно сгенерирован.",
+            linkType: 'document',
         );
     }
 }

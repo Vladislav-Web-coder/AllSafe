@@ -11,7 +11,6 @@ services:
       - 'host.docker.internal:host-gateway'
     ports:
       - '${APP_PORT:-80}:80'
-      - '${VITE_PORT:-5173}:${VITE_PORT:-5173}'
     environment:
       WWWUSER: '${WWWUSER}'
       LARAVEL_SAIL: 1
@@ -27,6 +26,7 @@ services:
       - redis
       - minio
       - pgvector
+
   pgsql:
     image: 'postgres:18-alpine'
     ports:
@@ -52,6 +52,7 @@ services:
         - '${DB_USERNAME:-sail}'
       retries: 3
       timeout: 5s
+
   redis:
     image: 'redis:alpine'
     ports:
@@ -67,6 +68,7 @@ services:
         - ping
       retries: 3
       timeout: 5s
+
   pgvector:
     image: 'pgvector/pgvector:pg18'
     container_name: "allsafe-pgvector"
@@ -84,6 +86,7 @@ services:
       test: [ "CMD", "pg_isready", "-q", "-d", "knowledge_db", "-U", "sail" ]
       retries: 3
       timeout: 5s
+
   embedding:
     build:
       context: './docker/embedding'
@@ -102,7 +105,26 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+
+  frontend:
+    image: 'node:22-alpine'
+    container_name: "allsafe-frontend"
+    working_dir: /app
+    ports:
+      - '${VITE_PORT:-5173}:5173'
+    volumes:
+      - '../../frontend:/app'
+      - 'sail-frontend-node-modules:/app/node_modules'
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+    command: >
+      sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    networks:
+      - sail
+    depends_on:
+      - laravel.test
+
   minio:
     image: 'minio/minio'
     ports:
@@ -121,6 +143,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
   createbuckets:
     image: 'minio/mc'
     depends_on:
@@ -138,6 +161,7 @@ services:
       mc mb --ignore-existing local/temp;
       exit 0;
       "
+
   ollama:
     image: 'ollama/ollama:latest'
     container_name: "allsafe-ollama"
@@ -154,6 +178,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
   llama:
     image: 'ghcr.io/ggml-org/llama.cpp:server'
     container_name: "allsafe-llama"
@@ -181,9 +206,21 @@ services:
       timeout: 30s
       retries: 10
       start_period: 120s
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: ib_mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - sail
+    restart: unless-stopped
+
 networks:
   sail:
     driver: bridge
+
 volumes:
   sail-pgsql:
     driver: local
@@ -198,4 +235,8 @@ volumes:
   sail-pgvector:
     driver: local
   sail-embedding-cache:
+    driver: local
+  sail-frontend-node-modules:
+    driver: local
+  sail-mailpit:
     driver: local

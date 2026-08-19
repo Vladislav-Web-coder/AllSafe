@@ -22,6 +22,8 @@ class RequiredDocumentResource extends JsonResource
                 'name' => $this->documentType?->name,
                 'category' => $this->documentType?->category,
             ],
+
+            'is_present' => $this->is_present ?? false,
         ];
     }
 }

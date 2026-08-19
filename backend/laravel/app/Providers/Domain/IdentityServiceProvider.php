@@ -4,6 +4,7 @@ namespace App\Providers\Domain;
 
 use App\Domain\Identity\Entities\PersonalAccessToken;
 use App\Domain\Identity\Repositories\RefreshTokenRepositoryInterface;
+use App\Domain\Identity\Services\EmailService;
 use App\Infrastructure\Persistence\Eloquent\Repositories\EloquentRefreshTokenRepository;
 use App\Infrastructure\Persistence\Eloquent\Repositories\EloquentUserRepository;
 use Illuminate\Support\ServiceProvider;
@@ -22,6 +23,7 @@ class IdentityServiceProvider extends ServiceProvider
             RefreshTokenRepositoryInterface::class,
             EloquentRefreshTokenRepository::class
         );
+        $this->app->singleton(EmailService::class);
     }
 
     public function boot(): void

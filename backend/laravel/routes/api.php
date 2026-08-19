@@ -7,6 +7,8 @@ use App\Interfaces\Http\Controllers\Api\V1\DocumentAnalysisController;
 use App\Interfaces\Http\Controllers\Api\V1\DocumentController;
 use App\Interfaces\Http\Controllers\Api\V1\DocumentGenerationController;
 use App\Interfaces\Http\Controllers\Api\V1\IssueController;
+use App\Interfaces\Http\Controllers\Api\V1\NotificationController;
+use App\Interfaces\Http\Controllers\Api\V1\OrganizationInvitationController;
 use App\Interfaces\Http\Controllers\Api\V1\OrganizationProfileController;
 use App\Interfaces\Http\Controllers\Api\V1\TaskController;
 use Interfaces\Http\Controllers\Api\V1\AuthController;
@@ -21,11 +23,23 @@ Route::prefix('v1')->group(function () {
      */
     Route::prefix('auth')->group(function () {
         Route::post('login', [AuthController::class, 'login']);
+        Route::post('register', [AuthController::class, 'register']);
+        Route::post('verify-registration', [AuthController::class, 'verifyRegistration']);
+        Route::post('resend-verification', [AuthController::class, 'resendVerificationCode']);
         Route::post('refresh', [AuthController::class, 'refresh']);
+        Route::post('forgot-password', [AuthController::class, 'forgotPassword']);
+        Route::post('reset-password', [AuthController::class, 'resetPassword']);
 
         Route::middleware('auth:sanctum')->group(function () {
             Route::post('logout', [AuthController::class, 'logout']);
             Route::get('me', [AuthController::class, 'me']);
+            Route::post('change-email', [AuthController::class, 'changeEmail']);
+            Route::post('verify-email-change', [AuthController::class, 'verifyEmailChange']);
+            Route::post('change-password', [AuthController::class, 'changePassword']);
+
+            Route::get('sessions', [AuthController::class, 'sessions']);
+            Route::delete('sessions/{sessionId}', [AuthController::class, 'terminateSession']);
+            Route::delete('sessions', [AuthController::class, 'terminateAllSessions']);
         });
     });
 
@@ -80,7 +94,10 @@ Route::prefix('v1')->group(function () {
                  */
                 Route::middleware('organization.manage')->group(function () {
                     Route::put('/', [OrganizationController::class, 'update']);
+                    Route::delete('/', [OrganizationController::class, 'destroy']);
                 });
+
+                Route::post('leave', [OrganizationController::class, 'leave']);
 
                 /*
                  * Участники организации
@@ -112,6 +129,7 @@ Route::prefix('v1')->group(function () {
                     Route::prefix('{documentId}')->middleware('document.access')->group(function () {
 
                         Route::get('/', [DocumentController::class, 'show']);
+                        Route::delete('/', [DocumentController::class, 'destroy']);
 
                         Route::middleware('organization.documents.upload')->group(function () {
                             Route::post('upload', [DocumentController::class, 'upload']);
@@ -167,6 +185,7 @@ Route::prefix('v1')->group(function () {
                         Route::middleware('organization.documents.upload')->group(function () {
                             Route::patch('status', [IssueController::class, 'updateStatus']);
                             Route::post('comments', [IssueController::class, 'addComment']);
+                            Route::delete('comments/{commentId}', [IssueController::class, 'deleteComment']);
                         });
 
                         Route::get('comments', [IssueController::class, 'listComments']);
@@ -174,7 +193,6 @@ Route::prefix('v1')->group(function () {
                     });
                 });
 
-                // Внутри блока организации
                 Route::prefix('tasks')->group(function () {
                     Route::get('/', [TaskController::class, 'index']);
                     Route::get('stats', [TaskController::class, 'stats']);
@@ -188,11 +206,12 @@ Route::prefix('v1')->group(function () {
                     Route::prefix('{taskId}')->group(function () {
 
                         Route::get('/', [TaskController::class, 'show']);
-
                         Route::middleware('organization.documents.upload')->group(function () {
+                            Route::patch('/', [TaskController::class, 'update']);
                             Route::patch('status', [TaskController::class, 'updateStatus']);
                             Route::post('assign', [TaskController::class, 'assign']);
                             Route::post('comments', [TaskController::class, 'addComment']);
+                            Route::delete('comments/{commentId}', [TaskController::class, 'deleteComment']);
                             Route::delete('/', [TaskController::class, 'destroy']);
                         });
 
@@ -210,8 +229,33 @@ Route::prefix('v1')->group(function () {
                     Route::get('/', [AuditController::class, 'index']);
                     Route::get('{auditLogId}', [AuditController::class, 'show']);
                     Route::get('user/{userId}', [AuditController::class, 'userActions']);
+
+                    Route::middleware('organization.owner')->group(function () {
+                        Route::delete('/', [AuditController::class, 'clear']);
+                    });
+                });
+
+                // Приглашения
+                Route::prefix('invitations')->group(function () {
+                    Route::get('/', [OrganizationInvitationController::class, 'index']);
+
+                    Route::middleware('organization.members.manage')->group(function () {
+                        Route::post('/', [OrganizationInvitationController::class, 'store']);
+                        Route::delete('{invitationId}', [OrganizationInvitationController::class, 'destroy']);
+                    });
                 });
             });
         });
+        Route::prefix('notifications')->group(function () {
+            Route::get('/', [NotificationController::class, 'index']);
+            Route::get('unread-count', [NotificationController::class, 'unreadCount']);
+            Route::get('settings', [NotificationController::class, 'getSettings']);
+            Route::put('settings', [NotificationController::class, 'updateSettings']);
+            Route::post('mark-all-read', [NotificationController::class, 'markAllAsRead']);
+            Route::delete('all', [NotificationController::class, 'destroyAll']);
+            Route::post('{notificationId}/read', [NotificationController::class, 'markAsRead']);
+            Route::delete('{notificationId}', [NotificationController::class, 'destroy']);
+        });
+        Route::post('invitations/{token}/accept', [OrganizationInvitationController::class, 'accept']);
     });
 });

@@ -15,4 +15,5 @@ interface OrganizationRepositoryInterface
     public function update(Organization $organization, array $data): Organization;
 
     public function getForUser(User $user): Collection;
+    public function delete(Organization $organization): void;
 }

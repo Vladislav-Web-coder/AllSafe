@@ -14,4 +14,5 @@ interface DocumentRepositoryInterface
     public function update(Document $document, array $data): Document;
 
     public function listForOrganization(int $organizationId): Collection;
+    public function delete(Document $document): void;
 }

@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'organization.documents.upload' => \App\Interfaces\Http\Middleware\EnsureCanUploadDocumentsMiddleware::class,
             'document.access' => \App\Interfaces\Http\Middleware\EnsureDocumentAccessMiddleware::class,
             'organization.documents.analyze' => \App\Interfaces\Http\Middleware\EnsureCanAnalyzeDocumentsMiddleware::class,
+            'organization.owner' => \App\Interfaces\Http\Middleware\EnsureOrganizationOwnerMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

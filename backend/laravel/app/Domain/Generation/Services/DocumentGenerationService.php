@@ -66,10 +66,10 @@ class DocumentGenerationService
             ]);
 
             // Генерируем DOCX файл
-            $documentTitle = $template->name . ' — ' . $organization->name;
+            $documentTitle = $template->name;
 
             $tempPath = $this->docxGenerator->generate(
-                title: $template->name,
+                title: $documentTitle,
                 sections: $sections,
                 organizationName: $organization->name,
             );
@@ -86,7 +86,8 @@ class DocumentGenerationService
                 $organization->id
             );
 
-            $fileName = 'generated_' . $run->id . '.docx';
+            $safeFileName = $this->sanitizeFileName($template->name);
+            $fileName = $safeFileName . '.docx';
 
             $filePath = $disk->putFileAs(
                 $directory,
@@ -154,5 +155,18 @@ class DocumentGenerationService
 
             throw $e;
         }
+    }
+    /**
+     * Очищает имя файла от недопустимых символов.
+     */
+    private function sanitizeFileName(string $name): string
+    {
+        $name = preg_replace('/[<>:"\/\\\\|?*]/', '', $name);
+
+        $name = str_replace(' ', '_', $name);
+
+        $name = mb_substr($name, 0, 100);
+
+        return $name;
     }
 }

@@ -12,4 +12,5 @@ return [
     App\Providers\Domain\TaskServiceProvider::class,
     App\Providers\Domain\ComplianceCalculatorServiceProvider::class,
     App\Providers\Domain\AuditLogServiceProvider::class,
+    App\Providers\Domain\NotificationServiceProvider::class
 ];

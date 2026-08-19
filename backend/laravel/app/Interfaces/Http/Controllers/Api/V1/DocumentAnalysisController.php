@@ -7,6 +7,7 @@ use App\Application\Analysis\UseCases\StartDocumentAnalysisUseCase;
 use App\Domain\Analysis\Repositories\AnalysisRunRepositoryInterface;
 use App\Domain\Analysis\Repositories\DocumentIssueRepositoryInterface;
 use App\Domain\Audit\Enums\AuditAction;
+use App\Domain\Audit\Services\AuditService;
 use App\Domain\Documents\Entities\Document;
 use App\Http\Controllers\Controller;
 use App\Interfaces\Http\Resources\Analysis\AnalysisRunResource;
@@ -20,6 +21,7 @@ class DocumentAnalysisController extends Controller
         private StartDocumentAnalysisUseCase $startAnalysis,
         private AnalysisRunRepositoryInterface $analysisRuns,
         private DocumentIssueRepositoryInterface $issues,
+        private AuditService $audit
     ) {}
 
     public function analyze(Request $request, int $organizationId, int $documentId): JsonResponse

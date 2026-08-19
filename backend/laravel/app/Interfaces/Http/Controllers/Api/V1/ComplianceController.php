@@ -3,6 +3,7 @@
 namespace App\Interfaces\Http\Controllers\Api\V1;
 
 use App\Domain\Audit\Enums\AuditAction;
+use App\Domain\Audit\Services\AuditService;
 use App\Domain\Compliance\Services\ComplianceCalculator;
 use App\Domain\Profiles\Repositories\OrganizationProfileRepositoryInterface;
 use App\Http\Controllers\Controller;
@@ -14,6 +15,7 @@ class ComplianceController extends Controller
     public function __construct(
         private ComplianceCalculator $calculator,
         private OrganizationProfileRepositoryInterface $profiles,
+        private AuditService $audit
     ) {}
 
     /**

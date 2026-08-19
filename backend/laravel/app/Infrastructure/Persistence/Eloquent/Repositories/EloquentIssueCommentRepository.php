@@ -20,4 +20,14 @@ class EloquentIssueCommentRepository implements IssueCommentRepositoryInterface
             ->orderBy('created_at')
             ->get();
     }
+
+    public function findById(int $id): ?IssueComment
+    {
+        return IssueComment::query()->find($id);
+    }
+
+    public function delete(IssueComment $comment): void
+    {
+        $comment->delete();
+    }
 }

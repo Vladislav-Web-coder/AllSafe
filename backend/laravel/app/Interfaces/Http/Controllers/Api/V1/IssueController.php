@@ -11,6 +11,7 @@ use App\Application\Issues\UseCases\UpdateIssueStatusUseCase;
 use App\Domain\Analysis\Enums\IssueStatus;
 use App\Domain\Analysis\Repositories\DocumentIssueRepositoryInterface;
 use App\Domain\Audit\Enums\AuditAction;
+use App\Domain\Audit\Services\AuditService;
 use App\Domain\Issues\Repositories\IssueCommentRepositoryInterface;
 use App\Domain\Issues\Repositories\IssueHistoryRepositoryInterface;
 use App\Http\Controllers\Controller;
@@ -22,6 +23,7 @@ use App\Interfaces\Http\Resources\Issues\IssueCommentResource;
 use App\Interfaces\Http\Resources\Issues\IssueHistoryResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class IssueController extends Controller
 {
@@ -32,6 +34,7 @@ class IssueController extends Controller
         private UpdateIssueStatusUseCase $updateStatus,
         private AddIssueCommentUseCase $addComment,
         private BulkUpdateIssuesUseCase $bulkUpdate,
+        private AuditService $audit
     ) {}
 
     /**
@@ -166,6 +169,58 @@ class IssueController extends Controller
             'total' => $results->count(),
             'success_count' => $results->where('success', true)->count(),
             'failed_count' => $results->where('success', false)->count(),
+        ]);
+    }
+    /**
+     * Удалить комментарий к замечанию.
+     */
+    public function deleteComment(Request $request, int $organizationId, int $documentId, int $issueId, int $commentId): JsonResponse
+    {
+        $issue = $this->issues->findById($issueId);
+
+        if (! $issue) {
+            abort(404, 'Замечание не найдено.');
+        }
+
+        $comment = $this->comments->findById($commentId);
+
+        if (! $comment || $comment->document_issue_id !== $issue->id) {
+            abort(404, 'Комментарий не найден.');
+        }
+
+        $user = $request->user();
+        $organization = $request->attributes->get('currentOrganization');
+
+        // Проверяем права: автор комментария или owner/admin
+        $canDelete = $comment->user_id === $user->id;
+
+        if (! $canDelete) {
+            $membership = DB::connection('pgsql_identity')
+                ->table('organization_user')
+                ->where('organization_id', $organization->id)
+                ->where('user_id', $user->id)
+                ->first();
+
+            $canDelete = $membership && in_array($membership->role, ['owner', 'admin']);
+        }
+
+        if (! $canDelete) {
+            abort(403, 'Вы не можете удалить этот комментарий.');
+        }
+
+        $this->comments->delete($comment);
+
+        // Аудит
+        $this->audit->logFromRequest(
+            action: AuditAction::IssueCommentAdded,
+            request: $request,
+            subjectType: 'issue',
+            subjectId: $issue->id,
+            description: "Комментарий удалён из замечания: {$issue->title}",
+        );
+
+        return response()->json([
+            'message' => 'Комментарий удалён.',
         ]);
     }
 }

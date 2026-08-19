@@ -4,6 +4,7 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/backend/laravel" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/backend/laravel/app" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/backend/laravel/vendor/_laravel_idea" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

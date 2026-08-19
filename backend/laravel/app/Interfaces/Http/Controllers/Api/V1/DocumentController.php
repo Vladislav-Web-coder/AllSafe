@@ -7,6 +7,7 @@ use App\Application\Documents\Commands\UploadDocumentFileCommand;
 use App\Application\Documents\UseCases\CreateDocumentUseCase;
 use App\Application\Documents\UseCases\UploadDocumentFileUseCase;
 use App\Domain\Audit\Enums\AuditAction;
+use App\Domain\Audit\Services\AuditService;
 use App\Domain\Documents\Entities\Document;
 use App\Domain\Documents\Entities\DocumentVersion;
 use App\Domain\Documents\Enums\DocumentSource;
@@ -27,6 +28,7 @@ class DocumentController extends Controller
         private CreateDocumentUseCase $createDocument,
         private UploadDocumentFileUseCase $uploadDocumentFile,
         private DocumentFileStorageInterface $fileStorage,
+        private AuditService $audit
     ) {}
 
     public function index(Request $request, int $organizationId)
@@ -131,5 +133,31 @@ class DocumentController extends Controller
             'expires_in' => 300,
             'file_name' => $document->currentVersion->file_name,
         ]);
+    }
+    public function destroy(Request $request, int $organizationId, int $documentId): JsonResponse
+    {
+        $document = $request->attributes->get('currentDocument');
+
+        if (! $document instanceof Document) {
+            abort(404, 'Документ не найден.');
+        }
+
+        // Аудит
+        $this->audit->logFromRequest(
+            action: AuditAction::DocumentDeleted,
+            request: $request,
+            subjectType: 'document',
+            subjectId: $document->id,
+            description: "Удалён документ: {$document->title}",
+            oldValues: [
+                'title' => $document->title,
+                'document_type_id' => $document->document_type_id,
+                'status' => $document->status->value,
+            ],
+        );
+
+        $document->delete();
+
+        return response()->json(null, 204);
     }
 }

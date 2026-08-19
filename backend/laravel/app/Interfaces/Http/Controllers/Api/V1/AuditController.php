@@ -6,6 +6,7 @@ use App\Domain\Audit\Repositories\AuditLogRepositoryInterface;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class AuditController extends Controller
 {
@@ -70,5 +71,23 @@ class AuditController extends Controller
         );
 
         return response()->json($logs);
+    }
+
+    /**
+     * Очистка аудита.
+     * Доступна только владельцу организации.
+     */
+    public function clear(Request $request, int $organizationId): JsonResponse
+    {
+        $organization = $request->attributes->get('currentOrganization');
+
+        $deletedCount = \App\Domain\Audit\Entities\AuditLog::query()
+            ->where('organization_id', $organization->id)
+            ->delete();
+
+        return response()->json([
+            'message' => "Аудит очищен. Удалено записей: {$deletedCount}.",
+            'deleted_count' => $deletedCount,
+        ]);
     }
 }

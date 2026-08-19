@@ -22,7 +22,7 @@ class DocxGenerator
         $phpWord = new PhpWord();
 
         $phpWord->getDocInfo()->setTitle($title);
-        $phpWord->getDocInfo()->setCreator('IB Compliance System');
+        $phpWord->getDocInfo()->setCreator('AllSafe');
 
         // Титульная страница
         $titleSection = $phpWord->addSection();

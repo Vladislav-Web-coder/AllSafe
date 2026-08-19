@@ -28,7 +28,16 @@ class StoreTaskRequest extends FormRequest
             'document_issue_id' => ['nullable', 'integer'],
             'document_id' => ['nullable', 'integer'],
             'assigned_to' => ['nullable', 'integer'],
-            'due_date' => ['nullable', 'date', 'after_or_equal:today'],
+
+            // Дата должна быть не раньше текущего момента
+            'due_date' => ['nullable', 'date', 'after_or_equal:now'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'due_date.after_or_equal' => 'Срок выполнения не может быть в прошлом.',
         ];
     }
 }

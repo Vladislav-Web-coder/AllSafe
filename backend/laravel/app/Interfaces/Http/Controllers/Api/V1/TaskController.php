@@ -11,6 +11,8 @@ use App\Application\Tasks\UseCases\CreateTaskFromIssueUseCase;
 use App\Application\Tasks\UseCases\CreateTaskUseCase;
 use App\Application\Tasks\UseCases\UpdateTaskStatusUseCase;
 use App\Domain\Audit\Enums\AuditAction;
+use App\Domain\Audit\Services\AuditService;
+use App\Domain\Notifications\Services\NotificationService;
 use App\Domain\Tasks\Enums\TaskPriority;
 use App\Domain\Tasks\Enums\TaskSourceType;
 use App\Domain\Tasks\Enums\TaskStatus;
@@ -21,11 +23,13 @@ use App\Interfaces\Http\Requests\Tasks\AddTaskCommentRequest;
 use App\Interfaces\Http\Requests\Tasks\AssignTaskRequest;
 use App\Interfaces\Http\Requests\Tasks\CreateTaskFromIssueRequest;
 use App\Interfaces\Http\Requests\Tasks\StoreTaskRequest;
+use App\Interfaces\Http\Requests\Tasks\UpdateTaskRequest;
 use App\Interfaces\Http\Requests\Tasks\UpdateTaskStatusRequest;
 use App\Interfaces\Http\Resources\Tasks\TaskCommentResource;
 use App\Interfaces\Http\Resources\Tasks\TaskResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class TaskController extends Controller
 {
@@ -36,6 +40,8 @@ class TaskController extends Controller
         private CreateTaskFromIssueUseCase $createFromIssue,
         private UpdateTaskStatusUseCase $updateStatus,
         private AssignTaskUseCase $assignTask,
+        private AuditService $audit,
+        private NotificationService $notificationService,
     ) {}
 
     /**
@@ -195,6 +201,18 @@ class TaskController extends Controller
 
         $task = $this->assignTask->handle($command);
 
+        if ($request->assigned_to) {
+            $this->notificationService->notify(
+                userId: $request->assigned_to,
+                organizationId: $organizationId,
+                type: 'task_assigned',
+                title: 'Вам назначена задача',
+                message: "Задача \"{$task->title}\" назначена на вас.",
+                linkType: 'task',
+                linkId: $task->id,
+            );
+        }
+
         return response()->json(new TaskResource($task));
     }
 
@@ -239,5 +257,79 @@ class TaskController extends Controller
         $comments = $this->taskComments->listForTask($taskId);
 
         return TaskCommentResource::collection($comments);
+    }
+    public function update(UpdateTaskRequest $request, int $organizationId, int $taskId): JsonResponse
+    {
+        $task = $this->tasks->findById($taskId);
+
+        if (! $task) {
+            abort(404, 'Задача не найдена.');
+        }
+
+        $updateData = [];
+
+        if ($request->has('priority')) {
+            $updateData['priority'] = TaskPriority::from($request->validated('priority'));
+        }
+
+        if ($request->has('due_date')) {
+            $updateData['due_date'] = $request->validated('due_date');
+        }
+
+        if ($request->has('title')) {
+            $updateData['title'] = $request->validated('title');
+        }
+
+        if ($request->has('description')) {
+            $updateData['description'] = $request->validated('description');
+        }
+
+        $task = $this->tasks->update($task, $updateData);
+
+        return response()->json(new TaskResource($task));
+    }
+
+    /**
+     * Удалить комментарий к задаче.
+     */
+    public function deleteComment(Request $request, int $organizationId, int $taskId, int $commentId): JsonResponse
+    {
+        $task = $this->tasks->findById($taskId);
+
+        if (! $task) {
+            abort(404, 'Задача не найдена.');
+        }
+
+        $comment = $this->taskComments->findById($commentId);
+
+        if (! $comment || $comment->task_id !== $task->id) {
+            abort(404, 'Комментарий не найден.');
+        }
+
+        $user = $request->user();
+        $organization = $request->attributes->get('currentOrganization');
+
+        // Проверяем права
+        $canDelete = $comment->user_id === $user->id;
+
+        if (! $canDelete) {
+            $membership = DB::connection('pgsql_identity')
+                ->table('organization_user')
+                ->where('organization_id', $organization->id)
+                ->where('user_id', $user->id)
+                ->first();
+
+            $canDelete = $membership && in_array($membership->role, ['owner', 'admin']);
+        }
+
+        if (! $canDelete) {
+            abort(403, 'Вы не можете удалить этот комментарий.');
+        }
+
+        $this->taskComments->delete($comment);
+
+        return response()->json([
+            'message' => 'Комментарий удалён.',
+        ]);
     }
 }

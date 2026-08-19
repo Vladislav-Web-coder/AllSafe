@@ -78,8 +78,12 @@ class ComplianceCalculator
         Collection $requiredDocuments,
         Collection $existingDocuments,
     ): array {
+        // Собираем ID типов документов, которые уже есть
+        // Приводим к int для корректного сравнения
         $existingTypeIds = $existingDocuments
             ->pluck('document_type_id')
+            ->filter(fn ($id) => $id !== null)
+            ->map(fn ($id) => (int) $id)
             ->unique()
             ->toArray();
 
@@ -88,7 +92,9 @@ class ComplianceCalculator
         $present = [];
 
         foreach ($requiredDocuments as $rule) {
-            $documentTypeId = $rule->document_type_id;
+            $documentTypeId = (int) $rule->document_type_id;
+
+            $isPresent = in_array($documentTypeId, $existingTypeIds, true);
 
             $item = [
                 'rule_code' => $rule->code,
@@ -98,12 +104,13 @@ class ComplianceCalculator
                 'obligation_level' => $rule->obligation_level,
                 'priority' => $rule->priority,
                 'legal_basis' => $rule->legal_basis_json,
-                'is_present' => in_array($documentTypeId, $existingTypeIds),
+                'description' => $rule->description,
+                'is_present' => $isPresent,
             ];
 
             $required[] = $item;
 
-            if ($item['is_present']) {
+            if ($isPresent) {
                 $present[] = $item;
             } else {
                 $missing[] = $item;
@@ -122,7 +129,7 @@ class ComplianceCalculator
             'total_required' => $totalRequired,
             'total_present' => $totalPresent,
             'total_missing' => $totalMissing,
-            'compliance_percent' => $compliancePercent,
+            'compliance_percent' => (int) $compliancePercent,
             'required' => $required,
             'missing' => $missing,
             'existing_documents_count' => $existingDocuments->count(),

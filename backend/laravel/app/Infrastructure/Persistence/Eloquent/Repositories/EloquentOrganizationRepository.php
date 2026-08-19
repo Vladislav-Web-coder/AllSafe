@@ -44,4 +44,9 @@ class EloquentOrganizationRepository implements OrganizationRepositoryInterface
             ->orderBy('created_at', 'desc')
             ->get();
     }
+
+    public function delete(Organization $organization): void
+    {
+        $organization->delete();
+    }
 }

@@ -20,4 +20,14 @@ class EloquentTaskCommentRepository implements TaskCommentRepositoryInterface
             ->orderBy('created_at')
             ->get();
     }
+
+    public function findById(int $id): ?TaskComment
+    {
+        return TaskComment::query()->find($id);
+    }
+
+    public function delete(TaskComment $comment): void
+    {
+        $comment->delete();
+    }
 }

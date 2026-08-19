@@ -10,4 +10,6 @@ interface IssueCommentRepositoryInterface
     public function create(array $data): IssueComment;
 
     public function listForIssue(int $issueId): Collection;
+    public function findById(int $id): ?IssueComment;
+    public function delete(IssueComment $comment): void;
 }

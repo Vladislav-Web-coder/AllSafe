@@ -12,6 +12,8 @@ use App\Domain\Documents\Enums\DocumentStatus;
 use App\Domain\Documents\Repositories\DocumentRepositoryInterface;
 use App\Domain\Documents\Repositories\DocumentVersionRepositoryInterface;
 use App\Domain\Knowledge\Repositories\LegalChunkRepositoryInterface;
+use App\Domain\Notifications\Repositories\NotificationRepositoryInterface;
+use App\Domain\Notifications\Services\NotificationService;
 use App\Infrastructure\AI\AiClientInterface;
 use App\Infrastructure\Embeddings\EmbeddingServiceInterface;
 use App\Infrastructure\Parsing\DocumentTextExtractorInterface;
@@ -51,6 +53,7 @@ class AnalyzeDocumentJob implements ShouldQueue
         EmbeddingServiceInterface          $embeddingService,
         LegalChunkRepositoryInterface      $legalChunks,
         AnalysisVersionService             $versionService,
+        NotificationService                $notificationService,
     ): void
     {
         $run = $analysisRuns->findById($this->analysisRunId);
@@ -240,6 +243,33 @@ class AnalyzeDocumentJob implements ShouldQueue
                     'status' => DocumentStatus::Completed,
                 ]);
             });
+            $notificationService->notify(
+                userId: $run->created_by,
+                organizationId: $document->organization_id,
+                type: 'analysis_completed',
+                title: 'Анализ завершён',
+                message: "Документ \"{$document->title}\" успешно проанализирован. Обнаружено замечаний: " . count($result['issues'] ?? []),
+                linkType: 'document',
+                linkId: $document->id,
+            );
+
+            // Уведомляем admin и security_officer о критических замечаниях
+            $criticalIssues = array_filter(
+                $result['issues'] ?? [],
+                fn ($issue) => in_array($issue['severity'] ?? '', ['critical', 'high'])
+            );
+
+            if (! empty($criticalIssues)) {
+                $notificationService->notifyByRoles(
+                    organizationId: $document->organization_id,
+                    roles: ['owner', 'admin', 'security_officer'],
+                    type: 'issue_added',
+                    title: 'Критические замечания',
+                    message: "В документе \"{$document->title}\" обнаружено критических замечаний: " . count($criticalIssues),
+                    linkType: 'document',
+                    linkId: $document->id,
+                );
+            }
         } catch (Throwable $e) {
             $analysisRuns->update($run, [
                 'status' => AnalysisStatus::Failed,
@@ -250,6 +280,16 @@ class AnalyzeDocumentJob implements ShouldQueue
             $documents->update($document, [
                 'status' => DocumentStatus::Failed,
             ]);
+
+            $notificationService->notify(
+                userId: $run->created_by,
+                organizationId: $document->organization_id,
+                type: 'analysis_failed',
+                title: 'Ошибка анализа',
+                message: "Не удалось проанализировать документ \"{$document->title}\": {$e->getMessage()}",
+                linkType: 'document',
+                linkId: $document->id,
+            );
 
             report($e);
         }

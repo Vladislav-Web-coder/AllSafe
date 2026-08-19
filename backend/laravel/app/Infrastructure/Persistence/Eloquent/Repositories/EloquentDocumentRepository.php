@@ -35,4 +35,8 @@ class EloquentDocumentRepository implements DocumentRepositoryInterface
             ->orderBy('created_at', 'desc')
             ->get();
     }
+    public function delete(Document $document): void
+    {
+        $document->delete();
+    }
 }
