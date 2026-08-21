@@ -2,6 +2,7 @@
 
 namespace App\Providers\Domain;
 
+use App\Domain\Knowledge\Services\LegalSearchService;
 use App\Infrastructure\Embeddings\EmbeddingServiceInterface;
 use App\Infrastructure\Embeddings\FakeEmbeddingService;
 use App\Infrastructure\Embeddings\HttpEmbeddingService;
@@ -15,6 +16,7 @@ class EmbeddingServiceProvider extends ServiceProvider
             EmbeddingServiceInterface::class,
             HttpEmbeddingService::class
         );
+        $this->app->singleton(LegalSearchService::class);
     }
     public function boot(): void
     {

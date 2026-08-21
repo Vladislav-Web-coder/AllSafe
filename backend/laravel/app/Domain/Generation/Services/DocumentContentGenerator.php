@@ -3,6 +3,7 @@
 namespace App\Domain\Generation\Services;
 
 use App\Domain\Generation\Entities\DocumentTemplate;
+use App\Domain\Knowledge\Services\LegalSearchService;
 use App\Domain\Organizations\Entities\Organization;
 use App\Domain\Profiles\Entities\OrganizationProfile;
 use App\Infrastructure\AI\AiClientInterface;
@@ -13,6 +14,7 @@ class DocumentContentGenerator
 {
     public function __construct(
         private AiClientInterface $ai,
+        private LegalSearchService $legalSearchService,
     ) {}
 
     public function generate(
@@ -20,15 +22,51 @@ class DocumentContentGenerator
         Organization $organization,
         ?OrganizationProfile $profile,
     ): array {
+        // Получаем профиль для контекстного поиска
+        $profileData = $profile?->toArray() ?? [];
+
+        // Формируем поисковый запрос на основе шаблона
+        $searchQuery = $this->buildSearchQuery($template);
+
+        Log::info('DocumentContentGenerator: RAG search', [
+            'template_code' => $template->code,
+            'search_query' => $searchQuery,
+            'profile_data' => $profileData,
+        ]);
+
+        // Ищем релевантные нормы НПА
+        $legalContext = [];
+        try {
+            $relevantChunks = $this->legalSearchService->searchWithContext(
+                query: $searchQuery,
+                organizationProfile: $profileData,
+                limit: 10,
+            );
+
+            $legalContext = $this->formatLegalContext($relevantChunks);
+
+            Log::info('DocumentContentGenerator: RAG results', [
+                'chunks_found' => $relevantChunks->count(),
+                'top_references' => $relevantChunks->take(3)->map(fn($c) => $c->getReference())->toArray(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('DocumentContentGenerator: RAG search failed', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // Строим промпт с учётом норм НПА
         $prompt = DocumentGenerationPrompt::build(
             template: $template,
             organization: $organization,
             profile: $profile,
+            legalContext: $legalContext,
         );
 
         Log::info('DocumentContentGenerator: sending prompt', [
             'prompt_length' => mb_strlen($prompt),
             'template_code' => $template->code,
+            'legal_context_count' => count($legalContext),
         ]);
 
         $result = $this->ai->generateDocumentContent($prompt);
@@ -77,11 +115,61 @@ class DocumentContentGenerator
     }
 
     /**
+     * Формирует поисковый запрос на основе шаблона документа.
+     */
+    private function buildSearchQuery(DocumentTemplate $template): string
+    {
+        $parts = [];
+
+        // Название шаблона
+        $parts[] = $template->name;
+
+        // Код шаблона (может содержать ключевые слова)
+        $templateKeywords = [
+            'pd_policy' => 'политика обработки персональных данных 152-ФЗ',
+            'consent_form' => 'согласие на обработку персональных данных',
+            'security_policy' => 'политика безопасности информации защита данных',
+            'data_protection' => 'защита персональных данных меры безопасности',
+            'privacy_policy' => 'политика конфиденциальности',
+            'notification' => 'уведомление об обработке персональных данных',
+            'regulations' => 'локальные акты обработка персональных данных',
+        ];
+
+        if (isset($templateKeywords[$template->code])) {
+            $parts[] = $templateKeywords[$template->code];
+        }
+
+        // Описание шаблона (если есть)
+        if (! empty($template->description)) {
+            $parts[] = mb_substr($template->description, 0, 500);
+        }
+
+        return implode(' ', $parts);
+    }
+
+    /**
+     * Форматирует результаты поиска в контекст для LLM.
+     */
+    private function formatLegalContext($chunks): array
+    {
+        return $chunks->map(function ($chunk) {
+            return [
+                'reference' => $chunk->getReference(),
+                'source_number' => $chunk->source?->number,
+                'article' => $chunk->article,
+                'part' => $chunk->part,
+                'content' => mb_substr($chunk->content, 0, 1000),
+                'relevance_score' => round($chunk->score, 4),
+            ];
+        })->toArray();
+    }
+
+    /**
      * Пытается распарсить JSON из строки content.
      */
     private function tryParseJsonContent(string $content): ?array
     {
-        $parser = new \App\Infrastructure\Ai\Support\LlmJsonParser();
+        $parser = new \App\Infrastructure\AI\Support\LlmJsonParser();
         $decoded = $parser->parse($content);
 
         if (is_array($decoded) && (isset($decoded['content']) || isset($decoded['sections']))) {
@@ -163,6 +251,7 @@ class DocumentContentGenerator
 
         return $sections;
     }
+
     /**
      * Убирает placeholder'ы из контента.
      */

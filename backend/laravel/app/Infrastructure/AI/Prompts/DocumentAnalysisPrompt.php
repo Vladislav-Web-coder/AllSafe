@@ -7,26 +7,45 @@ class DocumentAnalysisPrompt
     public static function system(): string
     {
         return <<<TEXT
-Ты — ассистент по проверке документов в области информационной безопасности и персональных данных.
+Ты — эксперт-аудитор по compliance и защите персональных данных в Российской Федерации.
+
+Твоя задача — проанализировать документ на соответствие требованиям законодательства РФ.
 
 КРИТИЧЕСКИ ВАЖНО:
-Твой ответ ДОЛЖЕН быть ТОЛЬКО валидным JSON без какого-либо дополнительного текста.
-Не добавляй пояснений до или после JSON.
-Не оборачивай JSON в markdown-блоки.
-Начни ответ сразу с символа { и закончи символом }.
+1. Ответ ДОЛЖЕН быть ТОЛЬКО валидным JSON без пояснений
+2. Не оборачивай JSON в markdown-блоки
+3. Начни с { и закончи }
 
 Формат ответа:
-{"score":0,"summary":{"total_checks":0,"passed":0,"failed":0,"warnings":0},"missing_sections":[],"legal_references":[],"issues":[{"requirement_code":null,"severity":"info","title":"","description":"","recommendation":"","legal_basis":[],"section_code":null}]}
+{
+  "score": 0-100,
+  "summary": {
+    "total_checks": 0,
+    "passed": 0,
+    "failed": 0,
+    "warnings": 0
+  },
+  "missing_sections": ["раздел1", "раздел2"],
+  "legal_references": ["152-ФЗ ст. 5", "152-ФЗ ст. 9"],
+  "issues": [
+    {
+      "requirement_code": null,
+      "severity": "critical|high|medium|low|info",
+      "title": "Краткое название замечания",
+      "description": "Подробное описание нарушения",
+      "recommendation": "Конкретная рекомендация по исправлению",
+      "legal_basis": ["152-ФЗ ст. 5 ч. 1", "Приказ ФСТЭК № 21"],
+      "section_code": null
+    }
+  ]
+}
 
-Правила:
-- score: целое число от 0 до 100
-- severity: одно из "critical", "high", "medium", "low", "info"
-- missing_sections: массив строк с названиями отсутствующих разделов
-- legal_references: массив строк со ссылками на НПА
-- issues: массив объектов замечаний
-
-Анализируй документ, используя предоставленные фрагменты нормативных документов.
-Не выдумывай требования, которых нет в предоставленном контексте.
+Правила анализа:
+- Используй ТОЛЬКО предоставленные фрагменты НПА
+- В поле legal_basis указывай точные ссылки из контекста (например: "152-ФЗ ст. 9 ч. 4")
+- severity: critical (нарушение закона), high (серьёзное несоответствие), medium (частичное несоответствие), low (рекомендация), info (информационное)
+- Не выдумывай требования, которых нет в контексте
+- Если документ соответствует требованиям — верни высокий score и пустой issues
 TEXT;
     }
 
@@ -39,22 +58,26 @@ TEXT;
 
         $contextText = '';
         if (! empty($legalContext)) {
-            $contextText = "\n\nФрагменты нормативных документов:\n";
-            foreach ($legalContext as $chunk) {
-                $source = $chunk['source_title'] ?? 'НПА';
-                $article = $chunk['article'] ? "ст. {$chunk['article']}" : '';
+            $contextText = "\n\n=== ФРАГМЕНТЫ НОРМАТИВНЫХ ДОКУМЕНТОВ ===\n";
+            foreach ($legalContext as $i => $chunk) {
+                $reference = $chunk['reference'] ?? 'НПА';
                 $content = $chunk['content'];
-                $contextText .= "\n[{$source}, {$article}]\n{$content}\n";
+                $score = $chunk['relevance_score'] ?? 0;
+                $contextText .= "\n[{$i}] {$reference} (relevance: {$score})\n{$content}\n";
             }
+            $contextText .= "\n=== КОНЕЦ ФРАГМЕНТОВ ===\n";
         }
 
         return <<<TEXT
 Тип документа: {$documentType}
-Название документа: {$title}
+Название: {$title}
 
-Текст документа:
+=== ТЕКСТ ДОКУМЕНТА ===
 {$text}
+
 {$contextText}
+
+Проанализируй документ и верни JSON с результатами.
 TEXT;
     }
 }

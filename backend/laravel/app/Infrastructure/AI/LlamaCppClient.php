@@ -63,7 +63,6 @@ class LlamaCppClient implements AiClientInterface
             throw new RuntimeException('llama.cpp returned unexpected response structure.');
         }
 
-        // Логируем сырой ответ
         Log::info('LlamaCppClient analyzeDocument raw response', [
             'content_length' => mb_strlen($content),
             'content_start' => mb_substr($content, 0, 500),

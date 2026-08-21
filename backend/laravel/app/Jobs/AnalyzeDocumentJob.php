@@ -12,6 +12,7 @@ use App\Domain\Documents\Enums\DocumentStatus;
 use App\Domain\Documents\Repositories\DocumentRepositoryInterface;
 use App\Domain\Documents\Repositories\DocumentVersionRepositoryInterface;
 use App\Domain\Knowledge\Repositories\LegalChunkRepositoryInterface;
+use App\Domain\Knowledge\Services\LegalSearchService;
 use App\Domain\Notifications\Repositories\NotificationRepositoryInterface;
 use App\Domain\Notifications\Services\NotificationService;
 use App\Infrastructure\AI\AiClientInterface;
@@ -50,10 +51,10 @@ class AnalyzeDocumentJob implements ShouldQueue
         DocumentIssueRepositoryInterface   $issues,
         AiClientInterface                  $ai,
         DocumentTextExtractorInterface     $textExtractor,
-        EmbeddingServiceInterface          $embeddingService,
-        LegalChunkRepositoryInterface      $legalChunks,
+        LegalSearchService                 $legalSearchService,
         AnalysisVersionService             $versionService,
         NotificationService                $notificationService,
+        \App\Domain\Organizations\Repositories\OrganizationRepositoryInterface $organizations,  // ← Добавлено
     ): void
     {
         $run = $analysisRuns->findById($this->analysisRunId);
@@ -134,31 +135,44 @@ class AnalyzeDocumentJob implements ShouldQueue
                 ]);
             }
 
-            // RAG: создаём embedding и ищем релевантные НПА
-            $maxEmbeddingChars = 4000;
+            $maxEmbeddingChars = 3000;
             $textForEmbedding = mb_substr($fullText, 0, $maxEmbeddingChars);
 
             $legalContext = [];
 
             try {
-                $documentEmbedding = $embeddingService->embed($textForEmbedding);
+                // Получаем профиль организации для контекстного поиска
+                $organization = $organizations->findById($document->organization_id);
+                $profile = $organization?->profile?->toArray() ?? [];
 
-                $relevantChunks = $legalChunks->searchSimilar($documentEmbedding, 10);
+                // Формируем поисковый запрос на основе текста документа
+                $searchQuery = $this->buildSearchQuery($textForEmbedding, $document->type?->code);
+
+                Log::info('AnalyzeDocumentJob: RAG search query', [
+                    'document_id' => $document->id,
+                    'search_query' => mb_substr($searchQuery, 0, 200),
+                    'profile' => $profile,
+                ]);
+
+                // Используем hybrid search с контекстом организации
+                $relevantChunks = $legalSearchService->searchWithContext(
+                    query: $searchQuery,
+                    organizationProfile: $profile,
+                    limit: 8,
+                );
 
                 Log::info('AnalyzeDocumentJob: RAG search results', [
                     'document_id' => $document->id,
                     'chunks_found' => $relevantChunks->count(),
+                    'top_scores' => $relevantChunks->take(3)->map(fn($c) => [
+                        'reference' => $c->getReference(),
+                        'score' => round($c->score, 4),
+                    ])->toArray(),
                 ]);
 
-                $legalContext = $relevantChunks->map(function ($chunk) {
-                    return [
-                        'source_title' => $chunk->source?->title,
-                        'source_number' => $chunk->source?->number,
-                        'article' => $chunk->article,
-                        'part' => $chunk->part,
-                        'content' => $chunk->content,
-                    ];
-                })->toArray();
+                // Форматируем контекст для LLM
+                $legalContext = $this->formatLegalContext($relevantChunks);
+
             } catch (Throwable $e) {
                 Log::warning('AnalyzeDocumentJob: RAG search failed', [
                     'document_id' => $document->id,
@@ -168,7 +182,6 @@ class AnalyzeDocumentJob implements ShouldQueue
                 $legalContext = [];
             }
 
-            // Формируем payload для AI
             $maxChars = (int)config('ai.analysis.max_chars', 20000);
             $truncatedText = mb_substr($fullText, 0, $maxChars);
 
@@ -293,5 +306,58 @@ class AnalyzeDocumentJob implements ShouldQueue
 
             report($e);
         }
+    }
+
+    /**
+     * Формирует поисковый запрос на основе текста документа.
+     */
+    private function buildSearchQuery(string $text, ?string $documentTypeCode): string
+    {
+        // Извлекаем ключевые фразы из начала документа
+        $sentences = preg_split('/[.!?]+/', mb_substr($text, 0, 2000));
+        $keyPhrases = [];
+
+        // Берём первые 3-5 содержательных предложений
+        foreach ($sentences as $sentence) {
+            $sentence = trim($sentence);
+            if (mb_strlen($sentence) > 30 && mb_strlen($sentence) < 300) {
+                $keyPhrases[] = $sentence;
+                if (count($keyPhrases) >= 5) break;
+            }
+        }
+
+        $query = implode(' ', $keyPhrases);
+
+        // Добавляем контекст типа документа
+        if ($documentTypeCode) {
+            $typeKeywords = [
+                'pd_policy' => 'политика обработки персональных данных',
+                'consent_form' => 'согласие на обработку персональных данных',
+                'security_policy' => 'политика безопасности информации',
+                'data_protection' => 'защита персональных данных',
+                'privacy_policy' => 'политика конфиденциальности',
+            ];
+
+            if (isset($typeKeywords[$documentTypeCode])) {
+                $query = $typeKeywords[$documentTypeCode] . ' ' . $query;
+            }
+        }
+
+        return mb_substr($query, 0, 1000);
+    }
+    private function formatLegalContext($chunks): array
+    {
+        return $chunks->map(function ($chunk) {
+            return [
+                'reference' => $chunk->getReference(),
+                'source_title' => $chunk->source?->title,
+                'source_number' => $chunk->source?->number,
+                'article' => $chunk->article,
+                'part' => $chunk->part,
+                'clause' => $chunk->clause,
+                'content' => mb_substr($chunk->content, 0, 800),
+                'relevance_score' => round($chunk->score, 4),
+            ];
+        })->toArray();
     }
 }
